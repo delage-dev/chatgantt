@@ -1,0 +1,74 @@
+:root {
+  --font-size: 16px;
+  --background: #EDE5D4;
+  --foreground: #2C2824;
+  --card: #F5EFE2;
+  --card-foreground: #2C2824;
+  --popover: #F5EFE2;
+  --popover-foreground: #2C2824;
+  --primary: #2C2824;
+  --primary-foreground: #EDE5D4;
+  --secondary: #E4DBCA;
+  --secondary-foreground: #2C2824;
+  --muted: #DED5C4;
+  --muted-foreground: #8C8278;
+  --accent: #D8CFC0;
+  --accent-foreground: #2C2824;
+  --destructive: #C4453A;
+  --border: rgba(44, 40, 36, 0.15);
+  --radius: 0;
+
+  /* Epic color schemes */
+  --epic-0-full: #C4A4A0;
+  --epic-0-medium: #DCCAC7;
+  --epic-0-light: #EDE0DE;
+
+  --epic-1-full: #7FB5B0;
+  --epic-1-medium: #B5D3D0;
+  --epic-1-light: #DDE9E8;
+
+  --epic-2-full: #D4A87C;
+  --epic-2-medium: #E6CCAF;
+  --epic-2-light: #F0E2D3;
+
+  --epic-3-full: #9BA4C4;
+  --epic-3-medium: #C3C9DC;
+  --epic-3-light: #E0E3EC;
+
+  --epic-4-full: #B5A08A;
+  --epic-4-medium: #D3C7B9;
+  --epic-4-light: #E6DFD6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html {
+    font-size: var(--font-size);
+  }
+}

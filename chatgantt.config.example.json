@@ -1,0 +1,12 @@
+{
+  "github": {
+    "token_env": "GITHUB_TOKEN",
+    "repos": ["owner/repo"],
+    "match_rules": [
+      {
+        "pattern": "{ticket_id}",
+        "search_in": ["title", "branch", "body"]
+      }
+    ]
+  }
+}
