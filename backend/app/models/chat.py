@@ -96,9 +96,11 @@ class TaskContext(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
-    provider: ChatProvider
-    api_key: str
     project_context: TaskContext
+    # Single-tenant: provider/key come from server env, not the browser.
+    # Kept optional for backward compatibility; values are ignored.
+    provider: Optional[ChatProvider] = None
+    api_key: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

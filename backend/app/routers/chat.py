@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app import settings
 from app.adapters.chat.registry import get_chat_adapter
 from app.adapters.registry import get_adapter
 from app.dependencies import get_connection_config, get_user_context
@@ -28,8 +29,16 @@ async def chat(
     config: ConnectionConfig = Depends(get_connection_config),
     user: UserContext = Depends(get_user_context),
 ):
+    # Single-tenant: provider + key come from server env, never the browser.
+    api_key = settings.chat_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat is not configured: set CHAT_API_KEY on the server.",
+        )
+
     try:
-        chat_adapter = get_chat_adapter(request.provider.value)
+        chat_adapter = get_chat_adapter(settings.chat_provider())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -51,7 +60,7 @@ async def chat(
             result = await chat_adapter.chat(
                 messages=messages,
                 system_prompt=system_prompt,
-                api_key=request.api_key,
+                api_key=api_key,
                 tools=tools,
             )
 

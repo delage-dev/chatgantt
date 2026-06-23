@@ -1,26 +1,37 @@
 from app.dependencies import get_connection_config
 
 
-async def test_blockers_source_header_populates_extra():
-    cfg = await get_connection_config(
-        x_provider="notion",
-        x_project="ds1",
-        x_base_url="https://api.notion.com",
-        authorization="Bearer tok",
-        x_notion_blockers_source="bds1",
-    )
+async def test_notion_config_from_env(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_tok")
+    monkeypatch.setenv("NOTION_TASKS_DATA_SOURCE", "ds_tasks")
+    monkeypatch.setenv("NOTION_BLOCKERS_DATA_SOURCE", "ds_blockers")
+
+    cfg = await get_connection_config()
+
     assert cfg.provider == "notion"
-    assert cfg.project_key == "ds1"
-    assert cfg.access_token == "tok"
-    assert cfg.extra["blockers_source"] == "bds1"
+    assert cfg.access_token == "secret_tok"
+    assert cfg.base_url == ""
+    assert cfg.project_key == "ds_tasks"
+    assert cfg.extra["blockers_source"] == "ds_blockers"
 
 
-async def test_absent_blockers_source_gives_empty_extra():
-    cfg = await get_connection_config(
-        x_provider="mock",
-        x_project="DEMO",
-        x_base_url="",
-        authorization="",
-        x_notion_blockers_source="",
-    )
+async def test_notion_config_without_blockers_source(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_tok")
+    monkeypatch.setenv("NOTION_TASKS_DATA_SOURCE", "ds_tasks")
+    monkeypatch.delenv("NOTION_BLOCKERS_DATA_SOURCE", raising=False)
+
+    cfg = await get_connection_config()
+
+    assert cfg.provider == "notion"
+    assert cfg.extra == {}
+
+
+async def test_mock_fallback_when_notion_token_unset(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+
+    cfg = await get_connection_config()
+
+    assert cfg.provider == "mock"
+    assert cfg.project_key == "DEMO"
+    assert cfg.access_token == ""
     assert cfg.extra == {}
