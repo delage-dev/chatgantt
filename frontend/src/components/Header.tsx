@@ -1,8 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Mic, Ban, Settings } from 'lucide-react';
+import { Mic, Ban } from 'lucide-react';
 import { SyncDropdown } from './SyncDropdown';
 import { VoicePane } from './VoicePane';
-import { NotionSettings } from './NotionSettings';
 import { BlockersDrawer } from './BlockersDrawer';
 import { useGanttStore } from '../store/ganttStore';
 import { useBlockerStore } from '../store/blockerStore';
@@ -11,7 +10,6 @@ import { usePermissions } from '../hooks/usePermissions';
 
 export function Header() {
   const [showVoicePane, setShowVoicePane] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const tasks = useGanttStore((s) => s.tasks);
   const activeProject = useGanttStore((s) => s.activeProject);
   const setActiveProject = useGanttStore((s) => s.setActiveProject);
@@ -93,18 +91,10 @@ export function Header() {
         >
           <Mic className="w-4 h-4" />
         </button>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="w-9 h-9 flex items-center justify-center border border-[#2C2824]/30 hover:bg-[#2C2824] hover:text-[#EDE5D4] transition-colors"
-          title="Connection Settings"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
         <SyncDropdown />
       </div>
 
       <VoicePane isOpen={showVoicePane} onClose={() => setShowVoicePane(false)} />
-      <NotionSettings isOpen={showSettings} onClose={() => setShowSettings(false)} />
       <BlockersDrawer isOpen={drawerOpen} onClose={closeDrawer} canEdit={canEdit} />
     </header>
   );

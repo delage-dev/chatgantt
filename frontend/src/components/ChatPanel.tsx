@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageCircle, X, Settings, Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useGanttStore } from '../store/ganttStore';
 import { useResourceStore } from '../store/resourceStore';
 import { useBlockerStore } from '../store/blockerStore';
 import { sendChatMessage, fetchBlockers, type ChatMessage, type ChatTaskSummary, type ChatResourceSummary, type ChatBlockerSummary, type ToolCallExecution } from '../utils/api';
-import { ChatSettings, loadLLMConfig, type LLMConfig } from './ChatSettings';
 
 interface ChatMessageWithTools extends ChatMessage {
   tool_executions?: ToolCallExecution[];
@@ -18,7 +17,6 @@ export function ChatPanel() {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -78,12 +76,6 @@ export function ChatPanel() {
     const text = inputValue.trim();
     if (!text || isLoading) return;
 
-    const config = loadLLMConfig();
-    if (!config) {
-      setShowSettings(true);
-      return;
-    }
-
     setError(null);
     const userMessage: ChatMessage = { role: 'user', content: text };
     const newMessages = [...messages, userMessage];
@@ -94,8 +86,6 @@ export function ChatPanel() {
     try {
       const response = await sendChatMessage({
         messages: newMessages,
-        provider: config.provider,
-        api_key: config.api_key,
         project_context: buildProjectContext(),
       });
       const assistantMessage: ChatMessageWithTools = {
@@ -119,9 +109,6 @@ export function ChatPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to get response';
       setError(msg);
-      if (msg.includes('Invalid API key')) {
-        setShowSettings(true);
-      }
     } finally {
       setIsLoading(false);
     }
@@ -136,10 +123,6 @@ export function ChatPanel() {
     },
     [handleSend]
   );
-
-  const handleSettingsSave = useCallback((_config: LLMConfig) => {
-    setError(null);
-  }, []);
 
   // Floating button when closed
   if (!isOpen) {
@@ -163,13 +146,6 @@ export function ChatPanel() {
             Project Assistant
           </span>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setShowSettings(true)}
-              className="w-7 h-7 flex items-center justify-center hover:bg-[#2C2824] hover:text-[#EDE5D4] transition-colors"
-              title="Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
             <button
               onClick={() => setIsOpen(false)}
               className="w-7 h-7 flex items-center justify-center hover:bg-[#2C2824] hover:text-[#EDE5D4] transition-colors"
@@ -274,11 +250,6 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <ChatSettings
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        onSave={handleSettingsSave}
-      />
     </>
   );
 }
