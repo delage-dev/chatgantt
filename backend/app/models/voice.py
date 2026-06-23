@@ -8,13 +8,12 @@ from pydantic import BaseModel
 class VoiceTokenRequest(BaseModel):
     """Request body for minting a LiveKit voice-session token.
 
-    Project/Notion config is supplied by the browser pane and held only in the
-    minted JWT (as participant attributes) — never persisted server-side.
+    Single-tenant: the backend is server-configured, so the token carries no
+    secrets. The body is optional — one-click voice may post nothing at all —
+    and only names the participant/room.
     """
 
-    project_id: str
-    notion_token: str
-    blockers_source: str = ""
+    participant_name: Optional[str] = None
     participant_identity: Optional[str] = None
     room: Optional[str] = None
 

@@ -3,6 +3,9 @@
 These exercise the plain async functions in ``agent.tools`` with a mocked
 httpx transport. They must NOT import livekit — ``agent.tools`` is deliberately
 livekit-free so it can be unit-tested without the agent runtime.
+
+Single-tenant: ChatGantt's REST API is server-configured, so the tools send no
+auth/provider headers.
 """
 from __future__ import annotations
 
@@ -18,28 +21,7 @@ def _client(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def test_build_headers_maps_attributes_to_chatgantt_headers():
-    headers = tools.build_headers(
-        project_id="ds-tasks",
-        notion_token="secret-tok",
-        blockers_source="ds-blockers",
-    )
-    assert headers["X-Provider"] == "notion"
-    assert headers["X-Project"] == "ds-tasks"
-    assert headers["Authorization"] == "Bearer secret-tok"
-    assert headers["X-Notion-Blockers-Source"] == "ds-blockers"
-
-
-def test_build_headers_omits_blockers_source_when_absent():
-    headers = tools.build_headers(
-        project_id="ds-tasks",
-        notion_token="secret-tok",
-        blockers_source="",
-    )
-    assert "X-Notion-Blockers-Source" not in headers
-
-
-async def test_get_project_overview_calls_tasks_endpoint_with_headers():
+async def test_get_project_overview_calls_tasks_endpoint_without_auth_headers():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -56,16 +38,16 @@ async def test_get_project_overview_calls_tasks_endpoint_with_headers():
         }
         return httpx.Response(200, json=body)
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     text = await tools.get_project_overview(
-        "http://api.test", headers, client=_client(handler)
+        "http://api.test", client=_client(handler)
     )
 
     assert seen["method"] == "GET"
     assert seen["url"] == "http://api.test/api/tasks"
-    assert seen["headers"]["x-provider"] == "notion"
-    assert seen["headers"]["x-project"] == "ds-tasks"
-    assert seen["headers"]["authorization"] == "Bearer tok"
+    # No credentials travel with the request — the API is server-configured.
+    assert "authorization" not in seen["headers"]
+    assert "x-provider" not in seen["headers"]
+    assert "x-project" not in seen["headers"]
     # Speech-friendly summary mentions counts and at least one task name
     assert "2" in text
     assert "Launch" in text
@@ -75,10 +57,9 @@ async def test_get_project_overview_raises_tool_error_on_http_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, text="nope")
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     with pytest.raises(tools.ToolError):
         await tools.get_project_overview(
-            "http://api.test", headers, client=_client(handler)
+            "http://api.test", client=_client(handler)
         )
 
 
@@ -102,9 +83,8 @@ async def test_list_active_blockers_queries_active_status():
             ],
         )
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     text = await tools.list_active_blockers(
-        "http://api.test", headers, client=_client(handler)
+        "http://api.test", client=_client(handler)
     )
 
     assert "/api/blockers" in seen["url"]
@@ -116,9 +96,8 @@ async def test_list_active_blockers_reports_none_when_empty():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[])
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     text = await tools.list_active_blockers(
-        "http://api.test", headers, client=_client(handler)
+        "http://api.test", client=_client(handler)
     )
     assert "no active blockers" in text.lower()
 
@@ -144,10 +123,8 @@ async def test_create_blocker_posts_correct_body():
             },
         )
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     text = await tools.create_blocker(
         "http://api.test",
-        headers,
         blocked_task_id="2",
         reason="vendor delay",
         severity="medium",
@@ -169,11 +146,9 @@ async def test_create_blocker_raises_tool_error_on_http_error():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(422, text="bad")
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     with pytest.raises(tools.ToolError):
         await tools.create_blocker(
             "http://api.test",
-            headers,
             blocked_task_id="2",
             reason="x",
             severity="low",
@@ -201,9 +176,8 @@ async def test_resolve_blocker_posts_to_resolve_endpoint():
             },
         )
 
-    headers = tools.build_headers("ds-tasks", "tok", "ds-blockers")
     text = await tools.resolve_blocker(
-        "http://api.test", headers, blocker_id="b1", client=_client(handler)
+        "http://api.test", blocker_id="b1", client=_client(handler)
     )
 
     assert seen["method"] == "POST"

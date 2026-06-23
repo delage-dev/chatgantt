@@ -1,9 +1,9 @@
 """ChatGantt LiveKit voice agent worker.
 
 A telephony-free voice agent: STT (Deepgram) -> Claude -> TTS (Cartesia) over
-WebRTC. Its function tools call ChatGantt's own REST API (never Notion directly)
-using headers built from the caller's participant attributes, which were minted
-into the LiveKit JWT by ``POST /api/voice/token``.
+WebRTC. Its function tools call ChatGantt's own REST API (never Notion directly).
+Single-tenant: ChatGantt is server-configured, so no credentials travel in the
+LiveKit JWT and the tools send no auth headers.
 
 Run modes (see https://docs.livekit.io/agents/server/startup-modes/):
     uv run python -m agent.agent console   # local terminal, no LiveKit needed
@@ -35,7 +35,10 @@ from livekit.plugins import anthropic
 
 from agent import tools
 
+# Load local overrides first, then the committed .env (LIVEKIT_URL etc.).
+# `load_dotenv` never overwrites already-set vars, so .env.local wins.
 load_dotenv(".env.local")
+load_dotenv()
 
 logger = logging.getLogger("chatgantt-voice-agent")
 
@@ -57,17 +60,16 @@ it back to the user in a single short sentence."""
 
 
 class ProjectAssistant(Agent):
-    """Voice agent whose tools call ChatGantt's REST API.
+    """Voice agent whose tools call ChatGantt's (server-configured) REST API.
 
-    The REST headers are derived once from the caller's participant attributes
-    and reused for every tool call. The ``@function_tool`` methods are thin
-    wrappers that delegate to the livekit-free functions in ``agent.tools``.
+    The ``@function_tool`` methods are thin wrappers that delegate to the
+    livekit-free functions in ``agent.tools``. ChatGantt reads its own Notion
+    credentials from env, so the tools send no auth headers — just the base URL.
     """
 
-    def __init__(self, base_url: str, headers: dict[str, str]) -> None:
+    def __init__(self, base_url: str) -> None:
         super().__init__(instructions=INSTRUCTIONS)
         self._base_url = base_url
-        self._headers = headers
 
     @function_tool()
     async def get_project_overview(self, context: RunContext) -> str:
@@ -75,7 +77,7 @@ class ProjectAssistant(Agent):
         are done, and a few recent item names. Use this when the user asks about
         the project, its status, or what's going on."""
         try:
-            return await tools.get_project_overview(self._base_url, self._headers)
+            return await tools.get_project_overview(self._base_url)
         except tools.ToolError as e:
             raise ToolError(str(e))
 
@@ -84,7 +86,7 @@ class ProjectAssistant(Agent):
         """List the project's currently active blockers. Use this when the user
         asks what is blocked, what's blocking progress, or about blockers."""
         try:
-            return await tools.list_active_blockers(self._base_url, self._headers)
+            return await tools.list_active_blockers(self._base_url)
         except tools.ToolError as e:
             raise ToolError(str(e))
 
@@ -108,7 +110,6 @@ class ProjectAssistant(Agent):
         try:
             return await tools.create_blocker(
                 self._base_url,
-                self._headers,
                 blocked_task_id=blocked_task_id,
                 reason=reason,
                 severity=severity,
@@ -126,7 +127,7 @@ class ProjectAssistant(Agent):
         context.disallow_interruptions()
         try:
             return await tools.resolve_blocker(
-                self._base_url, self._headers, blocker_id=blocker_id
+                self._base_url, blocker_id=blocker_id
             )
         except tools.ToolError as e:
             raise ToolError(str(e))
@@ -139,22 +140,8 @@ server = AgentServer()
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
-    # The browser participant carries the Notion/project config in its
-    # attributes (minted into the JWT by POST /api/voice/token).
-    participant = await ctx.wait_for_participant()
-    attrs = participant.attributes or {}
-    project_id = attrs.get("project_id", "")
-    notion_token = attrs.get("notion_token", "")
-    blockers_source = attrs.get("blockers_source", "")
-
-    if not project_id or not notion_token:
-        logger.error(
-            "Missing project_id/notion_token in participant attributes for %s",
-            participant.identity,
-        )
-
-    headers = tools.build_headers(project_id, notion_token, blockers_source)
-
+    # Single-tenant: ChatGantt is server-configured, so the agent needs no
+    # per-caller credentials. Its tools call the REST API at CHATGANTT_API_URL.
     session = AgentSession(
         stt=inference.STT(model="deepgram/nova-3", language="multi"),
         llm=anthropic.LLM(model=CLAUDE_MODEL),
@@ -169,7 +156,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(
         room=ctx.room,
-        agent=ProjectAssistant(base_url=CHATGANTT_API_URL, headers=headers),
+        agent=ProjectAssistant(base_url=CHATGANTT_API_URL),
     )
 
     await session.generate_reply(
