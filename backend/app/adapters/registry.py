@@ -4,9 +4,11 @@ from typing import Dict
 
 from app.adapters.base import TicketProviderAdapter
 from app.adapters.mock_adapter import MockAdapter
+from app.adapters.notion_adapter import NotionAdapter
 
 _ADAPTERS: Dict[str, TicketProviderAdapter] = {
     "mock": MockAdapter(),
+    "notion": NotionAdapter(),
 }
 
 
