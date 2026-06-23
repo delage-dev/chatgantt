@@ -6,13 +6,12 @@ This guide walks through deploying ChatGantt, connecting it to your ticketing sy
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - Node.js 18+
 - A Microsoft Teams workspace with admin permissions
-- A Twilio account (for voice calling features)
-- An API key from Anthropic or OpenAI (for the AI chat assistant)
-- An OpenAI API key with Realtime API access (for voice features)
-- Access credentials for your ticketing system (Jira, Linear, etc.)
+- A LiveKit Cloud account (for in-browser voice features — see section 4)
+- An Anthropic API key (for the AI chat assistant and voice agent)
+- Access credentials for your ticketing system (Notion, Jira, Linear, etc.)
 
 ---
 
@@ -44,26 +43,43 @@ This outputs production files to `frontend/dist`. The backend automatically serv
 
 ### Start the server
 
+ChatGantt runs as two processes: the FastAPI API server and the LiveKit voice agent worker.
+
 ```bash
+# Terminal 1 — API server
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 The app is now running at `http://localhost:8000`. The backend serves both the API (`/api/*`) and the built frontend (everything else).
 
-For development with hot-reload, run the backend and frontend separately:
+```bash
+# Terminal 2 — LiveKit voice agent worker (requires .env with LIVEKIT_* + ANTHROPIC_API_KEY)
+cd backend
+uv run python -m agent.agent dev
+```
+
+The agent worker dials out to LiveKit Cloud — no inbound port needed.
+
+For development with hot-reload, add a third terminal for the frontend:
 
 ```bash
-# Terminal 1 — backend
-cd backend
-CHATGANTT_ENV=dev uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 — frontend dev server
+# Terminal 3 — frontend dev server
 cd frontend
 npm run dev
 ```
 
 The frontend dev server runs on port 5173 and proxies API requests to the backend.
+
+### Run with Docker Compose
+
+```bash
+cp backend/.env.example backend/.env
+# edit backend/.env with real keys
+docker compose up
+```
+
+This starts `api` (port 8000), `agent` (no exposed port — dials LiveKit Cloud), and `frontend` (port 5173).
 
 ### Verify the app is running
 
@@ -177,65 +193,92 @@ The API key is stored in your browser's localStorage and sent per-request. It is
 
 ---
 
-## 4. Configure Voice Calling
+## 4. Configure Voice (LiveKit Cloud)
 
-The voice feature lets users dial a phone number and have a spoken conversation with the AI assistant about project status. It uses Twilio for phone connectivity and OpenAI's Realtime API for voice-to-voice conversation.
+The voice feature uses a WebRTC browser session — no phone number or telephony required. The user clicks a microphone button in the ChatGantt voice pane, which connects to a LiveKit room where the AI agent is already waiting. Speech recognition (Deepgram), reasoning (Claude), and text-to-speech (Cartesia) all run inside the agent worker process.
 
 ### What you need
 
-- A **Twilio account** with a phone number that supports voice
-- Your **Twilio Account SID** and **Auth Token** (from the Twilio console)
-- An **OpenAI API key** with access to the Realtime API (`gpt-4o-realtime-preview`)
+- A **LiveKit Cloud** account and project — sign up at [cloud.livekit.io](https://cloud.livekit.io) (free tier: ~1,000 agent-minutes/month, 5 concurrent sessions)
+- Your **LIVEKIT_URL**, **LIVEKIT_API_KEY**, and **LIVEKIT_API_SECRET** (from the LiveKit Cloud dashboard → Settings → Keys)
+- An **ANTHROPIC_API_KEY** (same key used for the chat assistant is fine)
 
-### Set up via the UI
-
-1. Click the phone icon in the header bar
-2. Enter your Twilio Account SID, Auth Token, and phone number
-3. Enter your OpenAI API key (this is separate from the chat API key)
-4. Click **Save Credentials**
-
-These credentials are held in server memory only. They are never written to disk. If the server restarts, you will need to re-enter them.
-
-### Register caller ID mappings
-
-So the system knows who is calling and which project to brief them on:
-
-1. In the Voice Settings modal, scroll to **Caller ID Mappings**
-2. Enter the caller's phone number (E.164 format, e.g., `+15551234567`)
-3. Enter their name and project key
-4. Optionally assign a 4-digit PIN (for callers whose number isn't registered)
-5. Click the **+** button
-
-When a registered phone number calls, the AI greets them by name and has their project context ready. Unrecognized callers are prompted to enter a PIN.
-
-### Configure the Twilio webhook
-
-Twilio needs to know where to send incoming calls. In the [Twilio Console](https://console.twilio.com):
-
-1. Go to **Phone Numbers** → **Manage** → **Active numbers**
-2. Click your phone number
-3. Under **Voice Configuration**, set:
-   - **A call comes in**: Webhook
-   - **URL**: `https://your-domain.com/api/voice/incoming`
-   - **HTTP Method**: POST
-
-For local development, use [ngrok](https://ngrok.com) to expose your backend:
+### Step 1: Authenticate with LiveKit Cloud
 
 ```bash
-ngrok http 8000
+lk cloud auth
 ```
 
-Then use the ngrok HTTPS URL as your webhook (e.g., `https://abc123.ngrok.io/api/voice/incoming`).
+This opens a browser for OAuth login and stores credentials locally. Optional for self-hosted; required if you want to use `lk agent create` for managed worker deployment.
 
-### Test a call
+### Step 2: Set environment variables
 
-Call your Twilio phone number. If your number is registered as a caller mapping, you'll be greeted by name and can ask about your project. If not, you'll be prompted for a PIN.
+```bash
+cp backend/.env.example backend/.env
+# Edit backend/.env:
+#   LIVEKIT_URL=wss://your-project.livekit.cloud
+#   LIVEKIT_API_KEY=APIxxxxxxxxxxxxxxxxx
+#   LIVEKIT_API_SECRET=your-livekit-api-secret
+#   ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Step 3: Start the agent worker
+
+```bash
+cd backend
+uv run python -m agent.agent dev
+```
+
+The worker registers itself with LiveKit Cloud under the name `chatgantt-voice-agent`. When the browser voice pane requests a session, LiveKit dispatches the call to this worker. No inbound port or webhook is needed — the agent dials out over WebSocket.
+
+For production (Docker Compose), the `agent` service in `docker-compose.yml` runs `python -m agent.agent start` automatically alongside the API.
+
+### Step 4: Provision Notion data sources
+
+The voice agent reasons over your project data by calling the ChatGantt REST API, which in turn reads from Notion. Before starting a voice session, provision the required Notion data sources:
+
+```bash
+cd backend
+uv run python -m scripts.provision_notion --token secret_xxx --parent-page <page_id> --dry-run
+# inspect the output, then:
+uv run python -m scripts.provision_notion --token secret_xxx --parent-page <page_id> --apply
+```
+
+The `--apply` run prints the header values to configure in the voice pane:
+
+```
+X-Provider: notion
+X-Project: <tasks_data_source_id>
+X-Notion-Blockers-Source: <blockers_data_source_id>
+Authorization: Bearer secret_xxx
+```
+
+See `backend/scripts/README.md` for full details and caveats on the Notion data-source API.
+
+### Step 5: Use the voice pane
+
+1. Open ChatGantt in your browser
+2. Click the microphone icon in the header bar
+3. Enter your Notion integration token and the data-source IDs from the provisioning step
+4. Click **Connect** — the browser connects to LiveKit via WebRTC
+
+No phone number is required. There is no PIN system. Project context flows from the voice pane settings into the LiveKit room as participant attributes, which the agent picks up at session start.
+
+### Free-tier limits
+
+| Limit | Value |
+|-------|-------|
+| Agent-minutes per month | ~1,000 (varies by plan) |
+| Concurrent agent sessions | 5 |
+| Room participants | Unlimited on paid; 2 on free |
+
+Upgrade at [cloud.livekit.io](https://cloud.livekit.io/settings/billing) when you exceed the free tier.
 
 ---
 
 ## 5. Embed in Microsoft Teams
 
-ChatGantt runs as a Teams tab application. The frontend loads in an iframe, and a reverse proxy or bot framework injects the connection headers.
+ChatGantt runs as a Teams tab application. The frontend loads in an iframe, and a reverse proxy or bot framework injects the connection headers. Voice now runs entirely in-browser via LiveKit WebRTC — no telephony, no phone numbers, no Twilio webhook configuration needed in Teams.
 
 ### Architecture overview
 
@@ -392,13 +435,15 @@ curl -H "X-User-Role: viewer" http://localhost:8000/api/me
 
 | Key | Where configured | Storage | Purpose |
 |-----|-----------------|---------|---------|
-| Ticketing provider token | Reverse proxy / `Authorization` header | Proxy config (not in app) | Read/write tickets from Jira, Linear, etc. |
+| Notion integration token | Voice pane settings / reverse proxy `Authorization` header | Browser session / proxy config | Read/write Notion tasks and blockers |
+| Notion data-source IDs | Voice pane settings (`X-Project`, `X-Notion-Blockers-Source`) | Browser session | Identify which Notion databases to use |
 | Chat LLM API key | Chat settings UI (gear icon in chat panel) | Browser localStorage | AI chat assistant (Claude or GPT) |
-| Twilio Account SID | Voice settings UI (phone icon in header) | Server memory (in-process) | Phone call connectivity |
-| Twilio Auth Token | Voice settings UI | Server memory (in-process) | Phone call authentication |
-| OpenAI Realtime API key | Voice settings UI | Server memory (in-process) | Voice-to-voice AI conversation |
+| `LIVEKIT_URL` | `backend/.env` | Server env var | LiveKit Cloud project endpoint |
+| `LIVEKIT_API_KEY` | `backend/.env` | Server env var | LiveKit token minting (API server) |
+| `LIVEKIT_API_SECRET` | `backend/.env` | Server env var | LiveKit token signing (API server) |
+| `ANTHROPIC_API_KEY` | `backend/.env` | Server env var | Claude LLM inside the voice agent worker |
 
-**Data residency:** No API keys or secrets are ever written to disk by ChatGantt. Chat keys live in the browser. Voice/Twilio keys live in server memory and are lost on restart. Ticketing provider credentials live in your proxy configuration, which you control.
+**Data residency:** No user data or secrets are written to disk by ChatGantt. Notion credentials flow per-request via headers. LiveKit and Anthropic keys live in server environment variables (your `.env` file, outside the app). Nothing is stored in a database.
 
 ---
 
@@ -412,14 +457,14 @@ curl -H "X-User-Role: viewer" http://localhost:8000/api/me
 - Open chat settings and verify your API key is entered.
 - Check the browser console for errors (401 = invalid key, 502 = provider error).
 
-**Voice calls don't connect**
-- Verify voice credentials are configured (phone icon → check for green "Configured" status).
-- Ensure the Twilio webhook URL points to your server's `/api/voice/incoming` endpoint.
-- For local development, make sure ngrok is running and the Twilio webhook uses the ngrok URL.
+**Voice pane does not connect**
+- Check that the agent worker is running (`uv run python -m agent.agent dev` in the `backend/` directory). The API server alone is not enough.
+- Verify `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are set correctly in `backend/.env`.
+- Open the browser console — a 401 from `/api/voice/token` means the LiveKit credentials are missing or wrong; a WebRTC ICE failure means a network/firewall issue with the LiveKit Cloud endpoint.
 
-**Caller not recognized**
-- Verify the phone number is registered in caller mappings (E.164 format with country code).
-- If using PIN, ensure it was set when creating the mapping.
+**Voice agent connects but has no project data**
+- Ensure you have entered the Notion integration token and data-source IDs in the voice pane settings.
+- Run the provisioning script (`backend/scripts/README.md`) to create the Tasks and Blockers databases if you haven't already.
 
 **Permission denied (403) on edits**
 - Check that `X-User-Role` is set to `editor` (or not set at all — the default is editor).
