@@ -64,7 +64,8 @@ def page_to_ticket(page: dict) -> Ticket:
     except ValueError:
         ticket_type = TicketType.TASK
 
-    status_obj = (props.get("Status", {}) or {}).get("status")
+    status_prop = props.get("Status", {}) or {}
+    status_obj = status_prop.get("status") or status_prop.get("select")
     status = status_obj["name"] if status_obj else ""
 
     date_obj = (props.get("Timeline", {}) or {}).get("date")

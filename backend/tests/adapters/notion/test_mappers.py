@@ -46,6 +46,15 @@ def test_page_to_ticket():
     assert t.description == "Do the thing"
 
 
+def test_page_to_ticket_status_from_select():
+    # Provisioning creates Status as a select (Notion API can't create status-type),
+    # so the mapper must read it from either a status or a select property.
+    page = _task_page()
+    page["properties"]["Status"] = {"type": "select", "select": {"name": "Done"}}
+    t = page_to_ticket(page)
+    assert t.status == "Done"
+
+
 def test_page_to_ticket_handles_empty_optionals():
     page = {
         "id": "p",
