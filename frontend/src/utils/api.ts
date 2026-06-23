@@ -1,5 +1,6 @@
 import type { GanttTask, TicketTree, TicketUpdate, TicketUpdateResponse, BatchUpdateItem, BatchResult, Comment, UserContext } from '../types/gantt';
 import type { Blocker, BlockerCreate, BlockerStatus } from '../types/blockers';
+import { getProviderHeaders } from '../store/settingsStore';
 
 const API_BASE = '/api';
 
@@ -8,6 +9,7 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...getProviderHeaders(),
       ...init?.headers,
     },
   });
