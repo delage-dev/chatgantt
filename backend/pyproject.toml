@@ -15,6 +15,7 @@ dependencies = [
     "mcp>=1.0.0",
     "livekit-api>=1.0.7",
     "websockets>=12.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -26,7 +27,6 @@ dev = [
 # LiveKit voice agent worker (separate process) — `uv sync --extra agent`
 agent = [
     "livekit-agents[anthropic,deepgram,cartesia,silero]~=1.5",
-    "python-dotenv",
 ]
 
 [tool.uv]
