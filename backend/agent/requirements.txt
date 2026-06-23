@@ -1,6 +1,0 @@
-# LiveKit voice agent worker dependencies.
-# Install in a separate environment from the FastAPI backend:
-#   uv pip install -r agent/requirements.txt
-# (The heavy livekit-agents stack is NOT installed in the backend env.)
-livekit-agents[anthropic,deepgram,cartesia,silero]~=1.5
-python-dotenv

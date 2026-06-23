@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,10 @@ from app.middleware.sanitization import SanitizationMiddleware
 from app.models.tickets import ConnectionConfig
 from app.routers import blockers, chat, github, health, resources, tasks, voice
 from app.services import github_config, github_poller
+
+# Load backend/.env for local dev (LIVEKIT_*, ANTHROPIC_API_KEY, etc.).
+# No-op in production, where the environment is injected by the platform.
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

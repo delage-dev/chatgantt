@@ -23,9 +23,10 @@ This guide walks through deploying ChatGantt, connecting it to your ticketing sy
 git clone <your-repo-url> chatgantt
 cd chatgantt
 
-# Backend
+# Backend (uv manages the Python install + venv)
 cd backend
-pip install -r requirements.txt
+uv sync                 # API deps
+uv sync --extra agent   # + LiveKit voice agent worker deps
 
 # Frontend
 cd ../frontend
