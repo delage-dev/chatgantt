@@ -14,20 +14,28 @@ async def get_connection_config(
     x_project: str = Header(default="DEMO"),
     x_base_url: str = Header(default=""),
     authorization: str = Header(default=""),
+    x_notion_blockers_source: str = Header(default=""),
 ) -> ConnectionConfig:
     """Extract ConnectionConfig from request headers.
 
     In production, the provider/project come from the chat platform's channel
     config and the access token from secure storage. For dev, defaults to the
     mock adapter with no auth required.
+
+    For the Notion provider, ``X-Project`` is the tasks data-source ID and
+    ``X-Notion-Blockers-Source`` (optional) is the blockers data-source ID,
+    surfaced to the adapter via ``ConnectionConfig.extra["blockers_source"]``.
     """
     token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+
+    extra = {"blockers_source": x_notion_blockers_source} if x_notion_blockers_source else {}
 
     return ConnectionConfig(
         provider=x_provider,
         access_token=token,
         base_url=x_base_url,
         project_key=x_project,
+        extra=extra,
     )
 
 
