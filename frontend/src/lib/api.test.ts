@@ -1,107 +1,92 @@
 /**
- * Focused tests for provider header wiring in the API client.
+ * Tests for the API client.
  *
- * Verifies that getProviderHeaders() returns the correct headers based on
- * the settings store state: Notion headers when configured, mock fallback when not.
+ * Single-tenant mode: the backend holds all credentials server-side.
+ * The browser must NOT send any provider/auth headers — requests are plain
+ * JSON with only Content-Type. These tests verify that contract.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useSettingsStore } from '../store/settingsStore';
-import { getProviderHeaders } from '../store/settingsStore';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-beforeEach(() => {
-  // Reset store to default state before each test
-  useSettingsStore.setState({
-    provider: 'mock',
-    notionToken: '',
-    projectDataSourceId: '',
-    blockersDataSourceId: '',
-  });
-});
+// Capture what headers the api client sends on a GET and a POST
+describe('api client — no credential headers in requests', () => {
+  let captured: Headers[] = [];
 
-describe('getProviderHeaders — mock fallback', () => {
-  it('returns mock headers when provider is mock', () => {
-    const headers = getProviderHeaders();
-    expect(headers['X-Provider']).toBe('mock');
-    expect(headers['X-Project']).toBe('DEMO');
-    expect(headers['Authorization']).toBeUndefined();
+  beforeEach(() => {
+    captured = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        captured.push(new Headers(init?.headers as HeadersInit | undefined));
+        return Promise.resolve(
+          new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        );
+      })
+    );
   });
 
-  it('falls back to mock when notion provider is set but token is missing', () => {
-    useSettingsStore.setState({ provider: 'notion', notionToken: '', projectDataSourceId: 'ds-123' });
-    const headers = getProviderHeaders();
-    expect(headers['X-Provider']).toBe('mock');
-    expect(headers['Authorization']).toBeUndefined();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it('falls back to mock when notion provider is set but project id is missing', () => {
-    useSettingsStore.setState({ provider: 'notion', notionToken: 'secret_abc', projectDataSourceId: '' });
-    const headers = getProviderHeaders();
-    expect(headers['X-Provider']).toBe('mock');
-    expect(headers['Authorization']).toBeUndefined();
+  it('fetchTasks sends no X-Provider header', async () => {
+    const { fetchTasks } = await import('../utils/api');
+    await fetchTasks();
+    expect(captured.length).toBeGreaterThan(0);
+    for (const h of captured) {
+      expect(h.get('X-Provider')).toBeNull();
+    }
   });
-});
 
-describe('getProviderHeaders — notion provider', () => {
-  it('returns Notion headers when fully configured', () => {
-    useSettingsStore.setState({
-      provider: 'notion',
-      notionToken: 'secret_test_token',
-      projectDataSourceId: 'tasks-ds-id',
-      blockersDataSourceId: 'blockers-ds-id',
+  it('fetchTasks sends no Authorization header', async () => {
+    const { fetchTasks } = await import('../utils/api');
+    await fetchTasks();
+    for (const h of captured) {
+      expect(h.get('Authorization')).toBeNull();
+    }
+  });
+
+  it('fetchTasks sends no X-Project header', async () => {
+    const { fetchTasks } = await import('../utils/api');
+    await fetchTasks();
+    for (const h of captured) {
+      expect(h.get('X-Project')).toBeNull();
+    }
+  });
+
+  it('fetchTasks sends Content-Type: application/json', async () => {
+    const { fetchTasks } = await import('../utils/api');
+    await fetchTasks();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured[0].get('Content-Type')).toBe('application/json');
+  });
+
+  it('sendChatMessage sends no credential headers', async () => {
+    // stub for POST which returns a ChatResponse shape
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        captured.push(new Headers(init?.headers as HeadersInit | undefined));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ message: { role: 'assistant', content: 'ok' }, tool_executions: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      })
+    );
+
+    const { sendChatMessage } = await import('../utils/api');
+    await sendChatMessage({
+      messages: [{ role: 'user', content: 'hello' }],
+      project_context: { project_key: 'DEMO', tasks: [] },
     });
 
-    const headers = getProviderHeaders();
-    expect(headers['X-Provider']).toBe('notion');
-    expect(headers['X-Project']).toBe('tasks-ds-id');
-    expect(headers['Authorization']).toBe('Bearer secret_test_token');
-    expect(headers['X-Notion-Blockers-Source']).toBe('blockers-ds-id');
-  });
-
-  it('omits X-Notion-Blockers-Source when blockers source is empty', () => {
-    useSettingsStore.setState({
-      provider: 'notion',
-      notionToken: 'secret_test_token',
-      projectDataSourceId: 'tasks-ds-id',
-      blockersDataSourceId: '',
-    });
-
-    const headers = getProviderHeaders();
-    expect(headers['X-Provider']).toBe('notion');
-    expect(headers['X-Notion-Blockers-Source']).toBeUndefined();
-  });
-
-  it('Bearer token is built from notionToken without double-prefixing', () => {
-    useSettingsStore.setState({
-      provider: 'notion',
-      notionToken: 'secret_abc123',
-      projectDataSourceId: 'proj-id',
-      blockersDataSourceId: '',
-    });
-
-    const { Authorization } = getProviderHeaders();
-    expect(Authorization).toBe('Bearer secret_abc123');
-    expect(Authorization).not.toContain('Bearer Bearer');
-  });
-});
-
-describe('isConfigured', () => {
-  it('mock provider is always considered configured', () => {
-    useSettingsStore.setState({ provider: 'mock' });
-    expect(useSettingsStore.getState().isConfigured()).toBe(true);
-  });
-
-  it('notion provider is configured when token + project id are set', () => {
-    useSettingsStore.setState({
-      provider: 'notion',
-      notionToken: 'secret_x',
-      projectDataSourceId: 'ds-x',
-    });
-    expect(useSettingsStore.getState().isConfigured()).toBe(true);
-  });
-
-  it('notion provider is not configured when fields are empty', () => {
-    useSettingsStore.setState({ provider: 'notion', notionToken: '', projectDataSourceId: '' });
-    expect(useSettingsStore.getState().isConfigured()).toBe(false);
+    expect(captured.length).toBeGreaterThan(0);
+    for (const h of captured) {
+      expect(h.get('X-Provider')).toBeNull();
+      expect(h.get('Authorization')).toBeNull();
+      expect(h.get('X-Project')).toBeNull();
+    }
   });
 });

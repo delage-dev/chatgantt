@@ -23,12 +23,14 @@ AGENT_NAME = "chatgantt-voice-agent"
 
 
 @router.post("/voice/token", response_model=VoiceTokenResponse, status_code=201)
-async def mint_voice_token(body: VoiceTokenRequest) -> VoiceTokenResponse:
+async def mint_voice_token(
+    body: VoiceTokenRequest = VoiceTokenRequest(),
+) -> VoiceTokenResponse:
     """Mint a LiveKit access token for a browser voice session.
 
-    The token grants room access and carries the caller's Notion/project config
-    as participant attributes, plus a dispatch entry for the ChatGantt voice
-    agent. Secrets live only in the JWT and are never persisted.
+    Single-tenant: the backend is server-configured, so the token carries NO
+    secrets. It grants room access and dispatches the ChatGantt voice agent,
+    whose tools call ChatGantt's own (server-configured) REST API.
     """
     server_url = os.getenv("LIVEKIT_URL", "")
     api_key = os.getenv("LIVEKIT_API_KEY", "")
@@ -37,7 +39,11 @@ async def mint_voice_token(body: VoiceTokenRequest) -> VoiceTokenResponse:
     if not (server_url and api_key and api_secret):
         raise HTTPException(status_code=500, detail="LiveKit is not configured")
 
-    identity = body.participant_identity or f"user-{uuid.uuid4().hex[:8]}"
+    identity = (
+        body.participant_identity
+        or body.participant_name
+        or f"user-{uuid.uuid4().hex[:8]}"
+    )
     room = body.room or f"chatgantt-{uuid.uuid4().hex[:12]}"
 
     token = (
@@ -50,13 +56,6 @@ async def mint_voice_token(body: VoiceTokenRequest) -> VoiceTokenResponse:
                 can_publish=True,
                 can_subscribe=True,
             )
-        )
-        .with_attributes(
-            {
-                "project_id": body.project_id,
-                "notion_token": body.notion_token,
-                "blockers_source": body.blockers_source,
-            }
         )
         .with_room_config(
             RoomConfiguration(

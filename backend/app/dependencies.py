@@ -1,40 +1,41 @@
 from __future__ import annotations
 
-from typing import Tuple
+from fastapi import Header
 
-from fastapi import Header, Query
-
+from app import settings
 from app.adapters.base import TicketProviderAdapter
 from app.adapters.registry import get_adapter
 from app.models.tickets import ConnectionConfig, UserContext, UserRole
 
 
-async def get_connection_config(
-    x_provider: str = Header(default="mock"),
-    x_project: str = Header(default="DEMO"),
-    x_base_url: str = Header(default=""),
-    authorization: str = Header(default=""),
-    x_notion_blockers_source: str = Header(default=""),
-) -> ConnectionConfig:
-    """Extract ConnectionConfig from request headers.
+async def get_connection_config() -> ConnectionConfig:
+    """Build the ConnectionConfig from server-side env (single-tenant).
 
-    In production, the provider/project come from the chat platform's channel
-    config and the access token from secure storage. For dev, defaults to the
-    mock adapter with no auth required.
+    When ``NOTION_TOKEN`` is set, serve the configured Notion workspace:
+    ``project_key`` is the tasks data-source ID and (optionally)
+    ``extra["blockers_source"]`` the blockers data-source ID. When unset,
+    fall back to the mock adapter so dev still works with no credentials.
 
-    For the Notion provider, ``X-Project`` is the tasks data-source ID and
-    ``X-Notion-Blockers-Source`` (optional) is the blockers data-source ID,
-    surfaced to the adapter via ``ConnectionConfig.extra["blockers_source"]``.
+    The frontend no longer supplies provider/project/token headers.
     """
-    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    token = settings.notion_token()
+    if not token:
+        return ConnectionConfig(
+            provider="mock",
+            access_token="",
+            base_url="",
+            project_key="DEMO",
+            extra={},
+        )
 
-    extra = {"blockers_source": x_notion_blockers_source} if x_notion_blockers_source else {}
+    blockers_source = settings.notion_blockers_data_source()
+    extra = {"blockers_source": blockers_source} if blockers_source else {}
 
     return ConnectionConfig(
-        provider=x_provider,
+        provider="notion",
         access_token=token,
-        base_url=x_base_url,
-        project_key=x_project,
+        base_url="",
+        project_key=settings.notion_tasks_data_source() or "",
         extra=extra,
     )
 

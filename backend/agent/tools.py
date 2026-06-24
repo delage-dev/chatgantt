@@ -3,13 +3,12 @@
 These are plain ``async`` functions that talk to ChatGantt's own REST API over
 httpx. They are intentionally free of any ``livekit`` import so they can be
 unit-tested with ``httpx.MockTransport`` and reused independently of the agent
-runtime. The thin ``@function_tool`` wrappers in :mod:`agent.agent` build the
-headers from participant attributes and delegate here.
+runtime. The thin ``@function_tool`` wrappers in :mod:`agent.agent` delegate
+here.
 
-Every call targets ChatGantt with the Notion provider headers:
-``X-Provider: notion``, ``X-Project: <tasks data source>``,
-``Authorization: Bearer <notion token>`` and (optionally)
-``X-Notion-Blockers-Source: <blockers data source>``.
+Single-tenant: ChatGantt's REST API is server-configured (it reads the Notion
+token / data sources from its own ``.env``), so these calls send NO auth or
+provider headers — only the base URL.
 """
 from __future__ import annotations
 
@@ -31,34 +30,24 @@ class ToolError(Exception):
     """
 
 
-def build_headers(project_id: str, notion_token: str, blockers_source: str) -> Dict[str, str]:
-    """Build the ChatGantt REST headers from participant attributes."""
-    headers = {
-        "X-Provider": "notion",
-        "X-Project": project_id,
-        "Authorization": f"Bearer {notion_token}",
-    }
-    if blockers_source:
-        headers["X-Notion-Blockers-Source"] = blockers_source
-    return headers
-
-
 async def _request(
     method: str,
     base_url: str,
     path: str,
-    headers: Dict[str, str],
     *,
     client: Optional[httpx.AsyncClient] = None,
     **kwargs,
 ) -> httpx.Response:
-    """Issue a request, reusing an injected client (tests) or opening one."""
+    """Issue a request, reusing an injected client (tests) or opening one.
+
+    No auth/provider headers are sent: the API is server-configured.
+    """
     url = f"{base_url.rstrip('/')}{path}"
     if client is not None:
-        resp = await client.request(method, url, headers=headers, **kwargs)
+        resp = await client.request(method, url, **kwargs)
     else:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as owned:
-            resp = await owned.request(method, url, headers=headers, **kwargs)
+            resp = await owned.request(method, url, **kwargs)
     return resp
 
 
@@ -76,12 +65,11 @@ def _fmt_blocker(b: dict) -> str:
 
 async def get_project_overview(
     base_url: str,
-    headers: Dict[str, str],
     *,
     client: Optional[httpx.AsyncClient] = None,
 ) -> str:
     """Fetch the project tree and return a concise, speech-friendly summary."""
-    resp = await _request("GET", base_url, "/api/tasks", headers, client=client)
+    resp = await _request("GET", base_url, "/api/tasks", client=client)
     _check(resp, "load the project")
     tree = resp.json()
     tickets: List[dict] = tree.get("tickets", [])
@@ -106,13 +94,12 @@ async def get_project_overview(
 
 async def list_active_blockers(
     base_url: str,
-    headers: Dict[str, str],
     *,
     client: Optional[httpx.AsyncClient] = None,
 ) -> str:
     """List currently active blockers as a short spoken summary."""
     resp = await _request(
-        "GET", base_url, "/api/blockers", headers,
+        "GET", base_url, "/api/blockers",
         client=client, params={"status": "active"},
     )
     _check(resp, "list blockers")
@@ -126,7 +113,6 @@ async def list_active_blockers(
 
 async def create_blocker(
     base_url: str,
-    headers: Dict[str, str],
     *,
     blocked_task_id: str,
     reason: str,
@@ -145,7 +131,7 @@ async def create_blocker(
         "severity": severity,
     }
     resp = await _request(
-        "POST", base_url, "/api/blockers", headers, client=client, json=body
+        "POST", base_url, "/api/blockers", client=client, json=body
     )
     _check(resp, "create the blocker")
     created = resp.json()
@@ -157,14 +143,13 @@ async def create_blocker(
 
 async def resolve_blocker(
     base_url: str,
-    headers: Dict[str, str],
     *,
     blocker_id: str,
     client: Optional[httpx.AsyncClient] = None,
 ) -> str:
     """Resolve an existing blocker by ID."""
     resp = await _request(
-        "POST", base_url, f"/api/blockers/{blocker_id}/resolve", headers, client=client
+        "POST", base_url, f"/api/blockers/{blocker_id}/resolve", client=client
     )
     _check(resp, "resolve the blocker")
     return f"Blocker {blocker_id} is now resolved."
